@@ -11,3 +11,7 @@ Deployment: new Railway project `kelly-broward-front-desk`, service `broward-api
 ## 11-11-2026 — Welcome cover
 
 Added the user-provided Broward school illustration as the welcome-page cover, optimized for web delivery. Desktop uses a cover beside the welcome text and entry cards; mobile shows the full illustration above the entry controls. Preserved visitor/staff routes and MM-DD-YYYY dates. JavaScript syntax checked; deployment and browser visual review follow.
+
+## 11-11-2026 — Header logo
+
+Replaced the upper-left text logo with the image supplied by the user, retaining the Broward County label and home link. Responsive sizing preserves the logo proportions.
