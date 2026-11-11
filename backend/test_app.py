@@ -94,4 +94,21 @@ class FrontDeskTest(unittest.TestCase):
    self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,201)
   rows=self.c.get('/api/visits?history=1&q=Reason',headers=self.h).json['items']
   self.assertEqual({r['visit_reason'] for r in rows},set(VISIT_REASONS))
+ def test_assignment_is_preserved_and_other_staff_cannot_overwrite(self):
+  self.c.post('/api/visits',json={'first_name':'Claim','last_name':'Visitor','email':'claim@example.com','phone':'9545550100','zip_code':'33301','visit_reason':'Other'})
+  with app.app_context(): visit_id=db().execute('SELECT id FROM visits').fetchone()[0]
+  headers=[];ids=[]
+  for i in range(2):
+   email=f'claim{i}@example.com'
+   self.c.post('/api/users',headers=self.h,json={'name':f'Staff {i}','email':email,'password':'abc','role':'staff'})
+   login=self.c.post('/api/login',json={'email':email,'password':'abc'}).json
+   headers.append({'Authorization':'Bearer '+login['token']});ids.append(login['user']['id'])
+  path='/api/visits/'+str(visit_id)
+  self.assertEqual(self.c.patch(path,headers=headers[0],json={'status':'in_progress'}).status_code,200)
+  self.assertEqual(self.c.patch(path,headers=headers[1],json={'status':'in_progress'}).status_code,409)
+  self.assertEqual(self.c.patch(path,headers=headers[1],json={'status':'completed'}).status_code,409)
+  self.assertEqual(self.c.patch(path,headers=headers[0],json={'status':'completed'}).status_code,200)
+  self.assertEqual(self.c.patch(path,headers=headers[0],json={'status':'waiting'}).status_code,403)
+  self.assertEqual(self.c.patch(path,headers=self.h,json={'status':'waiting'}).status_code,200)
+  with app.app_context(): self.assertEqual(db().execute('SELECT handled_by FROM visits WHERE id=?',(visit_id,)).fetchone()[0],ids[0])
 if __name__=='__main__': unittest.main()

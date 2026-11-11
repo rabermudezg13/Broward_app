@@ -29,3 +29,7 @@ Removed the 12-character minimum for account creation and password changes at th
 ## 11-11-2026 — Visit reason dropdown
 
 Added required Reason for visit dropdown: Badge Pickup, Fingerprinting, Talent Advisor Question, Speak with My Onboarder, Incident Question, Other. API validates the exact options and persists visit_reason. Idempotent additive SQLite migration retains old visits with a blank reason, displayed as an em dash. Current-week, statistics and historical tables display the reason. Six backend integration tests and frontend syntax check pass, including all six accepted reasons, rejection of missing/invalid reasons, and persistence.
+
+## 11-11-2026 — Preserve visitor assignment
+
+Starting assistance atomically assigns the visitor to the first team member. Other Staff cannot overwrite assignment or change that visit's status. Completion and privileged status corrections retain the original assignee. Only Admin/Management can reopen or delete visits. Queue displays Assisted by and suppresses unavailable Staff actions; shared updates use the existing 30-second refresh. Seven integration tests pass, including two-person claim conflict, completion, blocked Staff reopening and assignee preservation after an Admin correction. JavaScript syntax check passes.

@@ -169,8 +169,16 @@ def visits():
 def update_visit(visit_id):
     status=data().get('status')
     if status not in ('waiting','in_progress','completed'): return jsonify(error='Invalid status.'),400
-    cursor=db().execute('UPDATE visits SET status=?,updated_at=?,handled_by=? WHERE id=?',(status,now(),g.user['id'],visit_id));db().commit()
-    if not cursor.rowcount: return jsonify(error='Visit not found.'),404
+    db().execute('BEGIN IMMEDIATE')
+    visit=db().execute('SELECT * FROM visits WHERE id=?',(visit_id,)).fetchone()
+    if not visit:
+        db().rollback();return jsonify(error='Visit not found.'),404
+    privileged=g.user['role'] in ('admin','management')
+    if visit['handled_by'] and visit['handled_by']!=g.user['id'] and not privileged:
+        db().rollback();return jsonify(error='This visit is assigned to another team member.'),409
+    if status=='waiting' and not privileged:
+        db().rollback();return jsonify(error='Only Admin or Management can reopen a visit.'),403
+    db().execute('UPDATE visits SET status=?,updated_at=?,handled_by=COALESCE(handled_by,?) WHERE id=?',(status,now(),g.user['id'],visit_id));db().commit()
     return jsonify(ok=True)
 @app.route('/api/visits/<int:visit_id>',methods=['DELETE'])
 @auth()
