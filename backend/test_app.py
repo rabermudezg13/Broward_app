@@ -75,4 +75,12 @@ class FrontDeskTest(unittest.TestCase):
   self.assertEqual(self.c.patch('/api/users/'+str(staff['id']),headers=self.h,json={'role':'management'}).status_code,200)
   primary=next(u for u in users if u['email']==ADMIN)
   self.assertEqual(self.c.patch('/api/users/'+str(primary['id']),headers=self.h,json={'role':'staff'}).status_code,400)
+ def test_short_passwords_allowed_but_empty_rejected(self):
+  self.assertEqual(self.c.post('/api/users',headers=self.h,json={'name':'Short password','email':'short@example.com','password':'abc','role':'staff'}).status_code,201)
+  self.assertEqual(self.c.post('/api/users',headers=self.h,json={'name':'Empty password','email':'empty@example.com','password':''}).status_code,400)
+  login=self.c.post('/api/login',json={'email':'short@example.com','password':'abc'}).json
+  h={'Authorization':'Bearer '+login['token']}
+  self.assertEqual(self.c.post('/api/password',headers=h,json={'current_password':'abc','new_password':''}).status_code,400)
+  self.assertEqual(self.c.post('/api/password',headers=h,json={'current_password':'abc','new_password':'xy'}).status_code,200)
+  self.assertEqual(self.c.post('/api/login',json={'email':'short@example.com','password':'xy'}).status_code,200)
 if __name__=='__main__': unittest.main()

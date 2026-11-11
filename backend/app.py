@@ -180,7 +180,7 @@ def users():
     if request.method=='GET': return jsonify([public_user(u) for u in db().execute('SELECT * FROM users ORDER BY name')])
     from werkzeug.security import generate_password_hash
     d=data();name=text(d,'name');email=text(d,'email').lower();password=text(d,'password')
-    if not 1<=len(name)<=80 or not email_valid(email) or not 12<=len(password)<=128: return jsonify(error='Enter a name, valid email, and password of 12–128 characters.'),400
+    if not 1<=len(name)<=80 or not email_valid(email) or not 1<=len(password)<=128: return jsonify(error='Enter a name, valid email, and password of 1–128 characters.'),400
     role=d.get('role','staff')
     if role not in ROLES: return jsonify(error='Choose Staff, Management or Admin.'),400
     try: db().execute('INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)',(name,email,generate_password_hash(password),role));db().commit()
@@ -205,7 +205,7 @@ def update_user(user_id):
 def password():
     from werkzeug.security import check_password_hash,generate_password_hash
     d=data();new=text(d,'new_password')
-    if not check_password_hash(g.user['password'],text(d,'current_password')) or not 12<=len(new)<=128: return jsonify(error='Check your current password. New password must have 12–128 characters.'),400
+    if not check_password_hash(g.user['password'],text(d,'current_password')) or not 1<=len(new)<=128: return jsonify(error='Check your current password. New password must have 1–128 characters.'),400
     db().execute('UPDATE users SET password=? WHERE id=?',(generate_password_hash(new),g.user['id']));db().execute('DELETE FROM sessions WHERE user_id=?',(g.user['id'],));db().commit();return jsonify(ok=True)
 
 initialize()
