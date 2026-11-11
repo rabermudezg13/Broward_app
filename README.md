@@ -10,7 +10,7 @@ Modern front desk based on the two-entry workflow of `rabermudezg13/kelly-app-v2
 - Separate read-only historical query by week and/or name, paginated server-side.
 - Admins create and manage Staff, Management and Admin accounts. Only Admin manages users; Management and Admin can permanently delete visits with confirmation. The primary administrator remains protected.
 - Same-day duplicate check-ins are blocked by normalized email in America/New_York, including concurrent submissions. A visitor may return on another day.
-- Successful check-in displays the requested Spanish welcome message.
+- Successful check-in displays the English welcome message.
 - Password changes invalidate all sessions. Disabled accounts lose access immediately.
 
 ## Run
