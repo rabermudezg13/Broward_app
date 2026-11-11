@@ -32,6 +32,7 @@ def initialize():
         CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
         CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id INTEGER REFERENCES users(id),expires TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY, first_name TEXT NOT NULL,last_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT NOT NULL,zip_code TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'waiting',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,handled_by INTEGER REFERENCES users(id));
+        CREATE INDEX IF NOT EXISTS visits_arrival ON visits(created_at,id);
         ''')
         password = os.environ.get('ADMIN_INITIAL_PASSWORD')
         if password and not db().execute('SELECT id FROM users WHERE email=?',(ADMIN,)).fetchone():
