@@ -17,7 +17,7 @@ class FrontDeskTest(unittest.TestCase):
  def test_checkin_privacy_and_validation(self):
   self.assertEqual(self.c.get('/api/visits').status_code,401)
   self.assertEqual(self.c.post('/api/visits',json={}).status_code,400)
-  self.assertEqual(self.c.post('/api/visits',json={'first_name':'Test','last_name':'Visitor','email':'test@example.com','phone':'9545550100','zip_code':'33301'}).status_code,201)
+  self.assertEqual(self.c.post('/api/visits',json={'first_name':'Test','last_name':'Visitor','email':'test@example.com','phone':'9545550100','zip_code':'33301','visit_reason':'Badge Pickup'}).status_code,201)
  def test_week_history_pagination_and_status(self):
   monday=datetime.now(ZoneInfo('America/New_York')).replace(hour=10,minute=0,second=0,microsecond=0)
   monday-=timedelta(days=monday.weekday())
@@ -47,7 +47,7 @@ class FrontDeskTest(unittest.TestCase):
   self.c.patch('/api/users/'+str(s['user']['id']),headers=self.h,json={'active':False})
   self.assertEqual(self.c.get('/api/visits',headers=sh).status_code,401)
  def test_roles_duplicate_checkin_and_delete_permissions(self):
-  visitor={'first_name':'Sample','last_name':'Visitor','email':'Sample@Example.com','phone':'9545550100','zip_code':'33301'}
+  visitor={'first_name':'Sample','last_name':'Visitor','email':'Sample@Example.com','phone':'9545550100','zip_code':'33301','visit_reason':'Badge Pickup'}
   self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,201)
   visitor['email']=' sample@example.com '
   self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,409)
@@ -83,4 +83,15 @@ class FrontDeskTest(unittest.TestCase):
   self.assertEqual(self.c.post('/api/password',headers=h,json={'current_password':'abc','new_password':''}).status_code,400)
   self.assertEqual(self.c.post('/api/password',headers=h,json={'current_password':'abc','new_password':'xy'}).status_code,200)
   self.assertEqual(self.c.post('/api/login',json={'email':'short@example.com','password':'xy'}).status_code,200)
+ def test_visit_reason_required_and_saved(self):
+  visitor={'first_name':'Reason','last_name':'Visitor','email':'reason@example.com','phone':'9545550100','zip_code':'33301'}
+  self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,400)
+  visitor['visit_reason']='Invalid'
+  self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,400)
+  from app import VISIT_REASONS
+  for i,reason in enumerate(VISIT_REASONS):
+   visitor.update(email=f'reason{i}@example.com',visit_reason=reason)
+   self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,201)
+  rows=self.c.get('/api/visits?history=1&q=Reason',headers=self.h).json['items']
+  self.assertEqual({r['visit_reason'] for r in rows},set(VISIT_REASONS))
 if __name__=='__main__': unittest.main()

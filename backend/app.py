@@ -11,6 +11,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16384
 DB = os.environ.get('DATABASE_PATH', '/data/broward.db')
 ADMIN = 'cculturausallc@gmail.com'
 ROLES = ('staff', 'management', 'admin')
+VISIT_REASONS = ('Badge Pickup', 'Fingerprinting', 'Talent Advisor Question', 'Speak with My Onboarder', 'Incident Question', 'Other')
 limiter = Limiter(key_func=lambda: request.remote_addr, app=app, default_limits=['120 per minute'], storage_uri='memory://')
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -35,6 +36,9 @@ def initialize():
         CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY, first_name TEXT NOT NULL,last_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT NOT NULL,zip_code TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'waiting',created_at TEXT NOT NULL,updated_at TEXT NOT NULL,handled_by INTEGER REFERENCES users(id));
         CREATE INDEX IF NOT EXISTS visits_arrival ON visits(created_at,id);
         ''')
+        columns={row['name'] for row in db().execute('PRAGMA table_info(visits)')}
+        if 'visit_reason' not in columns:
+            db().execute("ALTER TABLE visits ADD COLUMN visit_reason TEXT NOT NULL DEFAULT ''")
         password = os.environ.get('ADMIN_INITIAL_PASSWORD')
         if password and not db().execute('SELECT id FROM users WHERE email=?',(ADMIN,)).fetchone():
             from werkzeug.security import generate_password_hash
@@ -93,6 +97,8 @@ def checkin():
     if any(not 1<=len(fields[k])<=80 for k in ('first_name','last_name')) or not email_valid(fields['email']) or not re.fullmatch(r'\d{5}',fields['zip_code']) or not 10<=len(re.sub(r'\D','',fields['phone']))<=15:
         return jsonify(error='Enter your name, valid email, phone number and five-digit ZIP code.'),400
     if len(fields['phone'])>30: return jsonify(error='Phone number is too long.'),400
+    reason=text(d,'visit_reason')
+    if reason not in VISIT_REASONS: return jsonify(error='Please select a reason for your visit.'),400
     fields['email']=fields['email'].lower()
     stamp=now()
     day=datetime.now(ZoneInfo('America/New_York')).replace(hour=0,minute=0,second=0,microsecond=0)
@@ -102,7 +108,7 @@ def checkin():
     if duplicate:
         db().rollback()
         return jsonify(error='You have already checked in today. Please take a seat or speak with our front desk team.'),409
-    db().execute('INSERT INTO visits(first_name,last_name,email,phone,zip_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',(*fields.values(),stamp,stamp));db().commit()
+    db().execute('INSERT INTO visits(first_name,last_name,email,phone,zip_code,created_at,updated_at,visit_reason) VALUES(?,?,?,?,?,?,?,?)',(*fields.values(),stamp,stamp,reason));db().commit()
     return jsonify(message='You are checked in. Our team will be with you shortly.'),201
 
 @app.route('/api/login',methods=['POST','OPTIONS'])

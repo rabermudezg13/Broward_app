@@ -25,3 +25,7 @@ Validation: four backend integration tests pass, covering existing flows, all th
 ## 11-11-2026 — Password length
 
 Removed the 12-character minimum for account creation and password changes at the user's request. Passwords remain required, with the existing 128-character maximum. Removed frontend minlength and outdated hints; updated backend validation messages. Five integration tests pass, including short-password creation, login and change, plus empty-password rejection. JavaScript syntax check passes.
+
+## 11-11-2026 — Visit reason dropdown
+
+Added required Reason for visit dropdown: Badge Pickup, Fingerprinting, Talent Advisor Question, Speak with My Onboarder, Incident Question, Other. API validates the exact options and persists visit_reason. Idempotent additive SQLite migration retains old visits with a blank reason, displayed as an em dash. Current-week, statistics and historical tables display the reason. Six backend integration tests and frontend syntax check pass, including all six accepted reasons, rejection of missing/invalid reasons, and persistence.
