@@ -8,8 +8,10 @@ from app import app,db,ADMIN
 class FrontDeskTest(unittest.TestCase):
  def setUp(self):
   self.c=app.test_client()
+  from app import limiter
+  limiter.reset()
   with app.app_context():
-   db().execute('DELETE FROM visits');db().execute('DELETE FROM sessions');db().execute("DELETE FROM users WHERE role='staff'");db().commit()
+   db().execute('DELETE FROM visits');db().execute('DELETE FROM sessions');db().execute("DELETE FROM users WHERE email!='cculturausallc@gmail.com'");db().commit()
   r=self.c.post('/api/login',json={'email':ADMIN,'password':'test-only-strong-password'})
   self.h={'Authorization':'Bearer '+r.json['token']}
  def test_checkin_privacy_and_validation(self):
@@ -44,4 +46,33 @@ class FrontDeskTest(unittest.TestCase):
   self.assertEqual(self.c.get('/api/visits',headers=sh).status_code,200)
   self.c.patch('/api/users/'+str(s['user']['id']),headers=self.h,json={'active':False})
   self.assertEqual(self.c.get('/api/visits',headers=sh).status_code,401)
+ def test_roles_duplicate_checkin_and_delete_permissions(self):
+  visitor={'first_name':'Sample','last_name':'Visitor','email':'Sample@Example.com','phone':'9545550100','zip_code':'33301'}
+  self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,201)
+  visitor['email']=' sample@example.com '
+  self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,409)
+  self.assertEqual(self.c.get('/api/visits?history=1&q=Sample',headers=self.h).json['total'],1)
+  with app.app_context():
+   visit_id=db().execute('SELECT id FROM visits').fetchone()[0]
+   old=(datetime.now(timezone.utc)-timedelta(days=2)).isoformat()
+   db().execute('UPDATE visits SET created_at=?',(old,));db().commit()
+  self.assertEqual(self.c.post('/api/visits',json=visitor).status_code,201)
+  for role in ('staff','management','admin'):
+   email=role+'@example.com'
+   self.assertEqual(self.c.post('/api/users',headers=self.h,json={'name':role,'email':email,'password':'test-role-password','role':role}).status_code,201)
+   login=self.c.post('/api/login',json={'email':email,'password':'test-role-password'}).json
+   h={'Authorization':'Bearer '+login['token']}
+   self.assertEqual(self.c.get('/api/users',headers=h).status_code,200 if role=='admin' else 403)
+   self.assertEqual(self.c.get('/api/visits',headers=h).status_code,200)
+   if role=='staff': self.assertEqual(self.c.delete('/api/visits/'+str(visit_id),headers=h).status_code,403)
+   if role=='management': self.assertEqual(self.c.delete('/api/visits/'+str(visit_id),headers=h).status_code,200)
+   if role=='admin':
+    with app.app_context(): remaining=db().execute('SELECT id FROM visits').fetchone()[0]
+    self.assertEqual(self.c.delete('/api/visits/'+str(remaining),headers=h).status_code,200)
+  self.assertEqual(self.c.post('/api/users',headers=self.h,json={'name':'Invalid','email':'invalid@example.com','password':'test-role-password','role':'root'}).status_code,400)
+  users=self.c.get('/api/users',headers=self.h).json
+  staff=next(u for u in users if u['role']=='staff')
+  self.assertEqual(self.c.patch('/api/users/'+str(staff['id']),headers=self.h,json={'role':'management'}).status_code,200)
+  primary=next(u for u in users if u['email']==ADMIN)
+  self.assertEqual(self.c.patch('/api/users/'+str(primary['id']),headers=self.h,json={'role':'staff'}).status_code,400)
 if __name__=='__main__': unittest.main()

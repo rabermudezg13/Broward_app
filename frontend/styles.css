@@ -10,3 +10,7 @@
 @media(max-width:650px){.home{display:flex;flex-direction:column;margin-top:10px;gap:0}.hero{display:contents}.cover-art{order:0;width:100%;max-height:none;border-radius:18px;margin-bottom:27px}.cover-art img{height:auto;width:100%}.hero>div:first-child{order:1;width:100%}.home .cards{order:2;display:grid;grid-template-columns:1fr;width:100%;margin-top:25px}.home .welcome-note{order:3}.hero h1{font-size:39px}.home .entry{padding:23px}}
 
 .brand{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.brand img{display:block;width:215px;height:auto;max-width:45vw}.brand .brand-county{font-size:8px;letter-spacing:2px;margin:0;color:#005b3e}@media(max-width:650px){.brand img{width:170px}.brand .brand-county{font-size:7px}}
+
+select{font:inherit;color:#17382f;border:1px solid #dce5d9;border-radius:9px;background:#fbfcfa;padding:10px;min-height:42px}label>select{display:block;width:100%;margin-top:8px}td select{margin-right:8px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+
+.danger{color:#a3372b;border-color:#e8c9c4}

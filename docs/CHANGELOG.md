@@ -15,3 +15,9 @@ Added the user-provided Broward school illustration as the welcome-page cover, o
 ## 11-11-2026 — Header logo
 
 Replaced the upper-left text logo with the image supplied by the user, retaining the Broward County label and home link. Responsive sizing preserves the logo proportions.
+
+## 11-11-2026 — Roles, repeat check-ins and visit deletion
+
+Added Staff, Management and Admin assignment at account creation and editing, with server-side role validation. Only Admin manages accounts. The primary admin and current administrator cannot lose their own access. Role changes revoke existing sessions. Management and Admin can permanently delete individual visits from current and historical lists after an explicit confirmation; Staff cannot delete. Duplicate check-ins by normalized email are rejected within the same Eastern calendar day using a serialized database transaction, while subsequent days remain allowed. Successful registration now shows the requested Spanish welcome message.
+
+Validation: four backend integration tests pass, covering existing flows, all three roles, deletion permissions, invalid roles, primary admin protection, case-insensitive duplicates and repeat visits on different days. Frontend JavaScript syntax passes. No production visitor records used in tests.

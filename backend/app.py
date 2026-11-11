@@ -10,6 +10,7 @@ app = Flask(__name__, static_folder='../frontend', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 16384
 DB = os.environ.get('DATABASE_PATH', '/data/broward.db')
 ADMIN = 'cculturausallc@gmail.com'
+ROLES = ('staff', 'management', 'admin')
 limiter = Limiter(key_func=lambda: request.remote_addr, app=app, default_limits=['120 per minute'], storage_uri='memory://')
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -48,7 +49,7 @@ def headers(r):
         r.headers['Access-Control-Allow-Origin']=origin
         r.headers['Vary']='Origin'
         r.headers['Access-Control-Allow-Headers']='Content-Type, Authorization'
-        r.headers['Access-Control-Allow-Methods']='GET, POST, PATCH, OPTIONS'
+        r.headers['Access-Control-Allow-Methods']='GET, POST, PATCH, DELETE, OPTIONS'
     r.headers['X-Content-Type-Options']='nosniff'
     r.headers['Referrer-Policy']='no-referrer'
     r.headers['Cache-Control']='no-store' if request.path.startswith('/api') else 'no-cache'
@@ -92,7 +93,15 @@ def checkin():
     if any(not 1<=len(fields[k])<=80 for k in ('first_name','last_name')) or not email_valid(fields['email']) or not re.fullmatch(r'\d{5}',fields['zip_code']) or not 10<=len(re.sub(r'\D','',fields['phone']))<=15:
         return jsonify(error='Enter your name, valid email, phone number and five-digit ZIP code.'),400
     if len(fields['phone'])>30: return jsonify(error='Phone number is too long.'),400
+    fields['email']=fields['email'].lower()
     stamp=now()
+    day=datetime.now(ZoneInfo('America/New_York')).replace(hour=0,minute=0,second=0,microsecond=0)
+    start=day.astimezone(timezone.utc).isoformat();end=(day+timedelta(days=1)).astimezone(timezone.utc).isoformat()
+    db().execute('BEGIN IMMEDIATE')
+    duplicate=db().execute('SELECT id FROM visits WHERE lower(email)=? AND created_at>=? AND created_at<? LIMIT 1',(fields['email'],start,end)).fetchone()
+    if duplicate:
+        db().rollback()
+        return jsonify(error='You have already checked in today. Please take a seat or speak with our front desk team.'),409
     db().execute('INSERT INTO visits(first_name,last_name,email,phone,zip_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',(*fields.values(),stamp,stamp));db().commit()
     return jsonify(message='You are checked in. Our team will be with you shortly.'),201
 
@@ -157,6 +166,14 @@ def update_visit(visit_id):
     cursor=db().execute('UPDATE visits SET status=?,updated_at=?,handled_by=? WHERE id=?',(status,now(),g.user['id'],visit_id));db().commit()
     if not cursor.rowcount: return jsonify(error='Visit not found.'),404
     return jsonify(ok=True)
+@app.route('/api/visits/<int:visit_id>',methods=['DELETE'])
+@auth()
+def delete_visit(visit_id):
+    if g.user['role'] not in ('admin','management'): return jsonify(error='Admin or Management access required.'),403
+    cursor=db().execute('DELETE FROM visits WHERE id=?',(visit_id,));db().commit()
+    if not cursor.rowcount: return jsonify(error='Visit not found.'),404
+    return jsonify(ok=True)
+
 @app.route('/api/users',methods=['GET','POST','OPTIONS'])
 @auth(admin=True)
 def users():
@@ -164,16 +181,25 @@ def users():
     from werkzeug.security import generate_password_hash
     d=data();name=text(d,'name');email=text(d,'email').lower();password=text(d,'password')
     if not 1<=len(name)<=80 or not email_valid(email) or not 12<=len(password)<=128: return jsonify(error='Enter a name, valid email, and password of 12–128 characters.'),400
-    try: db().execute('INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)',(name,email,generate_password_hash(password),'staff'));db().commit()
+    role=d.get('role','staff')
+    if role not in ROLES: return jsonify(error='Choose Staff, Management or Admin.'),400
+    try: db().execute('INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)',(name,email,generate_password_hash(password),role));db().commit()
     except sqlite3.IntegrityError: return jsonify(error='This email already has an account.'),409
     return jsonify(ok=True),201
 @app.route('/api/users/<int:user_id>',methods=['PATCH','OPTIONS'])
 @auth(admin=True)
 def update_user(user_id):
-    if user_id==g.user['id']: return jsonify(error='You cannot disable your own account.'),400
-    active=data().get('active')
-    if type(active) is not bool: return jsonify(error='Active must be true or false.'),400
-    db().execute('UPDATE users SET active=? WHERE id=?',(int(active),user_id));db().execute('DELETE FROM sessions WHERE user_id=?',(user_id,));db().commit();return jsonify(ok=True)
+    target=db().execute('SELECT * FROM users WHERE id=?',(user_id,)).fetchone()
+    if not target: return jsonify(error='User not found.'),404
+    d=data()
+    if not d or any(k not in ('active','role') for k in d): return jsonify(error='Provide active or role.'),400
+    if 'active' in d and type(d['active']) is not bool: return jsonify(error='Active must be true or false.'),400
+    if 'role' in d and d['role'] not in ROLES: return jsonify(error='Choose Staff, Management or Admin.'),400
+    role=d.get('role',target['role']);active=int(d.get('active',bool(target['active'])))
+    if user_id==g.user['id'] and (role!='admin' or not active): return jsonify(error='You cannot remove your own administrator access.'),400
+    if target['email']==ADMIN and (role!='admin' or not active): return jsonify(error='The primary administrator must remain active with the Admin role.'),400
+    db().execute('UPDATE users SET active=?,role=? WHERE id=?',(active,role,user_id))
+    db().execute('DELETE FROM sessions WHERE user_id=?',(user_id,));db().commit();return jsonify(ok=True)
 @app.route('/api/password',methods=['POST','OPTIONS'])
 @auth()
 def password():
