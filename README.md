@@ -35,3 +35,11 @@ New static project with root directory `frontend`, framework Other, no build com
 `cd backend && python -m unittest -v test_app.py`
 
 Tests use a temporary SQLite database and fictitious records. Cover public validation and privacy, week bounds, arrival order, pagination, history, attendance changes, role permissions and access revocation. No production records are used.
+
+## Statistics and Badge Pickup reports
+
+Statistics supports day, Monday-Sunday week and full calendar month using America/New_York boundaries, including DST. The current-week operational queue remains Monday-Friday. Counts cover all records in the selected period, grouped by reason, with missing legacy reasons shown as Not specified. Unique visitors use normalized email; category counts count visits, not people. Current partial periods contain records received so far. Deleted visits are excluded.
+
+The Badge Pickup report previews 50 records per page and exports all matching visits to XLSX or landscape PDF, capped at 10,000 records per export. All authenticated roles can access statistics and downloads; user-management and deletion permissions remain unchanged. Reports list visits registered for Badge Pickup, not confirmation of physical badge delivery. Exports include contact details, Eastern arrival, status and assigned staff. User-supplied spreadsheet content is written as literal text to prevent formula execution.
+
+Verify: `cd backend && python -m unittest -v test_app.py test_reporting.py`. Tests cover all original flows, reporting period edges including DST and leap day, category reconciliation, historical legacy categories, pagination, authorization, complete Excel/PDF exports, empty results, text/formula safety and ZIP leading zeros.

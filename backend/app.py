@@ -222,4 +222,7 @@ def password():
     if not check_password_hash(g.user['password'],text(d,'current_password')) or not 1<=len(new)<=128: return jsonify(error='Check your current password. New password must have 1–128 characters.'),400
     db().execute('UPDATE users SET password=? WHERE id=?',(generate_password_hash(new),g.user['id']));db().execute('DELETE FROM sessions WHERE user_id=?',(g.user['id'],));db().commit();return jsonify(ok=True)
 
+from reporting import register_reporting
+register_reporting(app,db,auth,VISIT_REASONS)
+
 initialize()
