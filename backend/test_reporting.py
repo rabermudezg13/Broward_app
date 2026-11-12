@@ -43,11 +43,13 @@ class ReportingTest(unittest.TestCase):
  def test_excel_pdf_and_empty_exports(self):
   from openpyxl import load_workbook
   self.seed()
+  with app.app_context():
+   db().execute("UPDATE visits SET completion_notes=?,completed_by=(SELECT id FROM users WHERE email=?),completed_at=created_at,status='completed' WHERE email='badge0@example.com'",('Reviewed documents. '*100,'cculturausallc@gmail.com'));db().commit()
   query='?period=month&date=2026-11-12&format='
   r=self.c.get('/api/reports/badge-pickup/export'+query+'xlsx',headers=self.h)
   self.assertEqual(r.status_code,200)
   ws=load_workbook(BytesIO(r.data)).active
-  self.assertEqual(ws.max_row,61);self.assertEqual(ws['B7'].value,'=1+1');self.assertEqual(ws['B7'].data_type,'s');self.assertEqual(ws['F7'].value,'03301')
+  self.assertEqual(ws.max_row,61);self.assertEqual(ws['B7'].value,'=1+1');self.assertEqual(ws['B7'].data_type,'s');self.assertEqual(ws['F7'].value,'03301');self.assertEqual(ws['I7'].value,'Administrator');self.assertTrue(ws['J7'].value.startswith('Reviewed documents.'))
   r=self.c.get('/api/reports/badge-pickup/export'+query+'pdf',headers=self.h)
   self.assertEqual(r.status_code,200);self.assertTrue(r.data.startswith(b'%PDF'))
   r=self.c.get('/api/reports/badge-pickup/export?period=day&date=2026-09-01&format=xlsx',headers=self.h)

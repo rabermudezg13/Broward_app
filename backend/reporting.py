@@ -27,7 +27,7 @@ def register_reporting(app,db,auth,reasons):
         start,end,begin,finish=period_bounds(period,anchor)
         return dict(period=period,start=start.isoformat(),end=(end-timedelta(days=1)).isoformat(),timezone='America/New_York'),(begin,finish)
     def badges(params):
-        return db().execute("SELECT v.*,u.name staff_name FROM visits v LEFT JOIN users u ON u.id=v.handled_by WHERE v.created_at>=? AND v.created_at<? AND v.visit_reason='Badge Pickup' ORDER BY v.created_at,v.id",params)
+        return db().execute("SELECT v.*,u.name staff_name,cu.name completed_by_name FROM visits v LEFT JOIN users u ON u.id=v.handled_by LEFT JOIN users cu ON cu.id=v.completed_by WHERE v.created_at>=? AND v.created_at<? AND v.visit_reason='Badge Pickup' ORDER BY v.created_at,v.id",params)
 
     @bp.route('/api/statistics',methods=['GET','OPTIONS'])
     @auth()
@@ -54,7 +54,7 @@ def register_reporting(app,db,auth,reasons):
         except (ValueError,OverflowError): return jsonify(error='Enter a valid period, date and page.'),400
         db().execute('BEGIN')
         total=db().execute("SELECT count(*) FROM visits WHERE created_at>=? AND created_at<? AND visit_reason='Badge Pickup'",params).fetchone()[0]
-        rows=db().execute("SELECT v.*,u.name staff_name FROM visits v LEFT JOIN users u ON u.id=v.handled_by WHERE v.created_at>=? AND v.created_at<? AND v.visit_reason='Badge Pickup' ORDER BY v.created_at,v.id LIMIT 50 OFFSET ?",[*params,(page-1)*50]).fetchall()
+        rows=db().execute("SELECT v.*,u.name staff_name,cu.name completed_by_name FROM visits v LEFT JOIN users u ON u.id=v.handled_by LEFT JOIN users cu ON cu.id=v.completed_by WHERE v.created_at>=? AND v.created_at<? AND v.visit_reason='Badge Pickup' ORDER BY v.created_at,v.id LIMIT 50 OFFSET ?",[*params,(page-1)*50]).fetchall()
         return jsonify(**meta,items=[dict(r) for r in rows],total=total,page=page,pages=max(1,(total+49)//50))
 
     @bp.route('/api/reports/badge-pickup/export',methods=['GET','OPTIONS'])
@@ -70,11 +70,11 @@ def register_reporting(app,db,auth,reasons):
         start=datetime.fromisoformat(meta['start']).strftime('%m-%d-%Y');end=datetime.fromisoformat(meta['end']).strftime('%m-%d-%Y')
         period_label=f'{start} - {end} | Eastern time'
         generated=datetime.now(TZ).strftime('%m-%d-%Y %I:%M %p %Z')
-        headers=['Arrival (Eastern)','First name','Last name','Email','Phone','ZIP','Status','Assisted by']
+        headers=['Arrival (Eastern)','First name','Last name','Email','Phone','ZIP','Status','Assisted by','Completed by','Completion notes']
         status={'waiting':'Waiting','in_progress':'In progress','completed':'Attended'}
         def values(row):
             arrival=datetime.fromisoformat(row['created_at']).astimezone(TZ).strftime('%m-%d-%Y %I:%M %p')
-            return [arrival,row['first_name'],row['last_name'],row['email'],row['phone'],row['zip_code'],status.get(row['status'],row['status']),row['staff_name'] or '']
+            return [arrival,row['first_name'],row['last_name'],row['email'],row['phone'],row['zip_code'],status.get(row['status'],row['status']),row['staff_name'] or '',row['completed_by_name'] or '',row['completion_notes'] or '']
         output=BytesIO()
         filename=f'badge-pickup-{meta["period"]}-{meta["start"]}.{fmt}'
         if fmt=='xlsx':
@@ -82,11 +82,11 @@ def register_reporting(app,db,auth,reasons):
             from openpyxl.styles import Font,PatternFill,Alignment
             from openpyxl.worksheet.table import Table,TableStyleInfo
             wb=Workbook();ws=wb.active;ws.title='Badge Pickup'
-            ws.append(['Kelly Education - Broward County']);ws.merge_cells('A1:H1')
-            ws.append(['Badge Pickup visit report']);ws.merge_cells('A2:H2')
-            ws.append([period_label]);ws.merge_cells('A3:H3')
-            ws.append([f'Generated {generated} | {total} visits']);ws.merge_cells('A4:H4')
-            ws.append(['Visits registered as Badge Pickup; not confirmation of badge delivery.']);ws.merge_cells('A5:H5')
+            ws.append(['Kelly Education - Broward County']);ws.merge_cells('A1:J1')
+            ws.append(['Badge Pickup visit report']);ws.merge_cells('A2:J2')
+            ws.append([period_label]);ws.merge_cells('A3:J3')
+            ws.append([f'Generated {generated} | {total} visits']);ws.merge_cells('A4:J4')
+            ws.append(['Visits registered as Badge Pickup; not confirmation of badge delivery.']);ws.merge_cells('A5:J5')
             ws.append(headers)
             for row in badges(params):
                 ws.append(values(row))
@@ -94,12 +94,12 @@ def register_reporting(app,db,auth,reasons):
                 for cell in ws[ws.max_row]: cell.data_type='s'
             for cell in ws[1]: cell.font=Font(name='Calibri',size=17,bold=True,color='006B48')
             for cell in ws[6]: cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor='006B48')
-            for i,width in enumerate([26,22,22,38,23,12,17,24],1): ws.column_dimensions[chr(64+i)].width=width
+            for i,width in enumerate([26,22,22,38,23,12,17,24,24,90],1): ws.column_dimensions[chr(64+i)].width=width
             for row in ws.iter_rows(min_row=7):
                 for cell in row: cell.alignment=Alignment(vertical='top',wrap_text=True)
-                ws.row_dimensions[row[0].row].height=32
+                ws.row_dimensions[row[0].row].height=min(409,max(32,15*sum(max(1,(len(line)+79)//80) for line in str(row[-1].value or '').split('\n'))))
             if total:
-                table=Table(displayName='BadgePickupVisits',ref=f'A6:H{ws.max_row}')
+                table=Table(displayName='BadgePickupVisits',ref=f'A6:J{ws.max_row}')
                 table.tableStyleInfo=TableStyleInfo(name='TableStyleMedium4',showRowStripes=True);ws.add_table(table)
             else: ws.append(['No Badge Pickup visits in this period.'])
             ws.freeze_panes='A7';ws.print_title_rows='1:6';ws.sheet_properties.pageSetUpPr.fitToPage=True
@@ -120,11 +120,14 @@ def register_reporting(app,db,auth,reasons):
             title=ParagraphStyle('ReportTitle',fontName=fontname,fontSize=18,leading=23,textColor=colors.HexColor('#006b48'))
             story=[Paragraph('Kelly Education - Broward County',title),Spacer(1,8),Paragraph('Badge Pickup visit report',styles['Heading2']),Paragraph(escape(period_label),styles['Normal']),Paragraph(escape(f'{total} visits | Generated {generated}'),styles['Normal']),Spacer(1,6),Paragraph('Visits registered as Badge Pickup; not confirmation of badge delivery.',styles['Normal']),Spacer(1,16)]
             cell=lambda v: Paragraph(escape(str(v)),body)
-            data=[[cell(h) for h in headers]]
-            for row in badges(params): data.append([cell(v) for v in values(row)])
-            if not total: data.append([cell('No Badge Pickup visits in this period.')]+[cell('') for _ in range(7)])
-            table=LongTable(data,colWidths=[105,80,80,145,90,45,75,82],repeatRows=1,hAlign='LEFT')
-            table.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),colors.HexColor('#dcecdf')),('VALIGN',(0,0),(-1,-1),'TOP'),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f3f6f1')]),('BOTTOMPADDING',(0,0),(-1,-1),8),('TOPPADDING',(0,0),(-1,-1),8),('LINEBELOW',(0,0),(-1,0),1,colors.HexColor('#006b48'))]))
+            data=[[cell(h) for h in headers[:-1]]];note_spans=[]
+            for row in badges(params):
+                vals=values(row);data.append([cell(v) for v in vals[:-1]])
+                if vals[-1]:
+                    n=len(data);data.append([cell('Completion notes: '+vals[-1])]+[cell('') for _ in range(8)]);note_spans.append(('SPAN',(0,n),(-1,n)))
+            if not total: data.append([cell('No Badge Pickup visits in this period.')]+[cell('') for _ in range(8)])
+            table=LongTable(data,colWidths=[100,70,70,140,80,40,65,110,127],repeatRows=1,hAlign='LEFT')
+            table.setStyle(TableStyle(note_spans+[('BACKGROUND',(0,0),(-1,0),colors.HexColor('#dcecdf')),('VALIGN',(0,0),(-1,-1),'TOP'),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white,colors.HexColor('#f3f6f1')]),('BOTTOMPADDING',(0,0),(-1,-1),8),('TOPPADDING',(0,0),(-1,-1),8),('LINEBELOW',(0,0),(-1,0),1,colors.HexColor('#006b48'))]))
             story.append(table)
             def footer(canvas,doc):
                 canvas.setFont(fontname,8);canvas.setFillColor(colors.HexColor('#66786e'));canvas.drawString(30,18,'Kelly Education Broward County | Badge Pickup');canvas.drawRightString(812,18,f'Page {doc.page}')

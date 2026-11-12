@@ -39,6 +39,9 @@ def initialize():
         columns={row['name'] for row in db().execute('PRAGMA table_info(visits)')}
         if 'visit_reason' not in columns:
             db().execute("ALTER TABLE visits ADD COLUMN visit_reason TEXT NOT NULL DEFAULT ''")
+        for column,definition in [('other_details',"TEXT NOT NULL DEFAULT ''"),('completion_notes',"TEXT NOT NULL DEFAULT ''"),('completed_by','INTEGER REFERENCES users(id)'),('completed_at','TEXT')]:
+            if column not in columns: db().execute(f'ALTER TABLE visits ADD COLUMN {column} {definition}')
+        db().execute('CREATE TABLE IF NOT EXISTS visit_completions(id INTEGER PRIMARY KEY,visit_id INTEGER NOT NULL REFERENCES visits(id) ON DELETE CASCADE,user_id INTEGER NOT NULL REFERENCES users(id),notes TEXT NOT NULL,created_at TEXT NOT NULL)')
         password = os.environ.get('ADMIN_INITIAL_PASSWORD')
         if password and not db().execute('SELECT id FROM users WHERE email=?',(ADMIN,)).fetchone():
             from werkzeug.security import generate_password_hash
@@ -99,6 +102,9 @@ def checkin():
     if len(fields['phone'])>30: return jsonify(error='Phone number is too long.'),400
     reason=text(d,'visit_reason')
     if reason not in VISIT_REASONS: return jsonify(error='Please select a reason for your visit.'),400
+    details=text(d,'other_details')
+    if reason=='Other' and not 1<=len(details)<=1000: return jsonify(error='Please explain the reason for your visit (up to 1,000 characters).'),400
+    if reason!='Other': details=''
     fields['email']=fields['email'].lower()
     stamp=now()
     day=datetime.now(ZoneInfo('America/New_York')).replace(hour=0,minute=0,second=0,microsecond=0)
@@ -108,7 +114,7 @@ def checkin():
     if duplicate:
         db().rollback()
         return jsonify(error='You have already checked in today. Please take a seat or speak with our front desk team.'),409
-    db().execute('INSERT INTO visits(first_name,last_name,email,phone,zip_code,created_at,updated_at,visit_reason) VALUES(?,?,?,?,?,?,?,?)',(*fields.values(),stamp,stamp,reason));db().commit()
+    db().execute('INSERT INTO visits(first_name,last_name,email,phone,zip_code,created_at,updated_at,visit_reason,other_details) VALUES(?,?,?,?,?,?,?,?,?)',(*fields.values(),stamp,stamp,reason,details));db().commit()
     return jsonify(message='You are checked in. Our team will be with you shortly.'),201
 
 @app.route('/api/login',methods=['POST','OPTIONS'])
@@ -161,13 +167,15 @@ def visits():
     total=db().execute('SELECT count(*) FROM visits v WHERE '+where,params).fetchone()[0]
     counts={r['status']:r['n'] for r in db().execute('SELECT status,count(*) n FROM visits v WHERE '+where+' GROUP BY status',params)}
     unique=db().execute('SELECT count(DISTINCT lower(email)) FROM visits v WHERE '+where,params).fetchone()[0]
-    rows=db().execute('SELECT v.*,u.name as staff_name FROM visits v LEFT JOIN users u ON v.handled_by=u.id WHERE '+where+' ORDER BY v.created_at ASC,v.id ASC LIMIT 50 OFFSET ?',[*params,(page-1)*50]).fetchall()
+    rows=db().execute('SELECT v.*,u.name as staff_name,cu.name as completed_by_name FROM visits v LEFT JOIN users u ON v.handled_by=u.id LEFT JOIN users cu ON v.completed_by=cu.id WHERE '+where+' ORDER BY v.created_at ASC,v.id ASC LIMIT 50 OFFSET ?',[*params,(page-1)*50]).fetchall()
     return jsonify(items=[dict(r) for r in rows],total=total,page=page,pages=max(1,(total+49)//50),counts=counts,unique_visitors=unique,week_start=start.isoformat() if start else None)
 
 @app.route('/api/visits/<int:visit_id>',methods=['PATCH','OPTIONS'])
 @auth()
 def update_visit(visit_id):
-    status=data().get('status')
+    payload=data();status=payload.get('status')
+    notes=text(payload,'completion_notes')
+    if status=='completed' and not 1<=len(notes)<=2000: return jsonify(error='Describe what you did to complete this visit (up to 2,000 characters).'),400
     if status not in ('waiting','in_progress','completed'): return jsonify(error='Invalid status.'),400
     db().execute('BEGIN IMMEDIATE')
     visit=db().execute('SELECT * FROM visits WHERE id=?',(visit_id,)).fetchone()
@@ -178,8 +186,21 @@ def update_visit(visit_id):
         db().rollback();return jsonify(error='This visit is assigned to another team member.'),409
     if status=='waiting' and not privileged:
         db().rollback();return jsonify(error='Only Admin or Management can reopen a visit.'),403
-    db().execute('UPDATE visits SET status=?,updated_at=?,handled_by=COALESCE(handled_by,?) WHERE id=?',(status,now(),g.user['id'],visit_id));db().commit()
+    stamp=now()
+    if status=='completed':
+        if visit['status']=='completed':
+            db().rollback();return jsonify(error='This visit is already marked as attended.'),409
+        db().execute('INSERT INTO visit_completions(visit_id,user_id,notes,created_at) VALUES(?,?,?,?)',(visit_id,g.user['id'],notes,stamp))
+        db().execute('UPDATE visits SET completion_notes=?,completed_by=?,completed_at=? WHERE id=?',(notes,g.user['id'],stamp,visit_id))
+    db().execute('UPDATE visits SET status=?,updated_at=?,handled_by=COALESCE(handled_by,?) WHERE id=?',(status,stamp,g.user['id'],visit_id));db().commit()
     return jsonify(ok=True)
+@app.route('/api/visits/<int:visit_id>/completions',methods=['GET','OPTIONS'])
+@auth()
+def completion_history(visit_id):
+    if not db().execute('SELECT id FROM visits WHERE id=?',(visit_id,)).fetchone(): return jsonify(error='Visit not found.'),404
+    rows=db().execute('SELECT c.notes,c.created_at,u.name staff_name FROM visit_completions c JOIN users u ON c.user_id=u.id WHERE c.visit_id=? ORDER BY c.id DESC',(visit_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
 @app.route('/api/visits/<int:visit_id>',methods=['DELETE'])
 @auth()
 def delete_visit(visit_id):
